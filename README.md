@@ -31,3 +31,10 @@
 - **endpose**: `ndarray` — Shape `(14,)`
 ---
 # Data Path
+## You should copy these to your local folder.
+`/data/sea_disk0/cuihz/code/RoboTwin/data`
+`/data/sea_disk0/cuihz/code/RoboTwin/aloha_maniskill_sim`
+`/data/sea_disk0/cuihz/code/RoboTwin/models`
+---
+# Code Example
+`test.py` and `script/eval_policy_dp3.py`
