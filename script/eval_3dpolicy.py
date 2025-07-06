@@ -7,11 +7,13 @@ import hydra
 from pathlib import Path
 from collections import deque
 import traceback
-
+import json
 import yaml
 from datetime import datetime
 import importlib
 import dill
+import subprocess
+from pathlib import Path
 from argparse import ArgumentParser
 current_file_path = os.path.abspath(__file__)
 parent_directory = os.path.dirname(current_file_path)
@@ -70,20 +72,117 @@ class Env:
         print('Front Camera Config:\n    type: '+ str(self.args['front_camera_type']) + '\n    fovy: ' + str(self.args['front_camera_fovy']) + '\n    camera_w: ' + str(self.args['front_camera_w']) + '\n    camera_h: ' + str(self.args['front_camera_h']))
         print('\n=======================================')
         self.task= Env.class_decorator(task_name)
-        self.st_seed = seed
+        self.st_seed = (seed+1)*(10000)
         self.task.set_actor_pose(True)
-        return self.Check_seed(task_num)
+        return self.find_seed(task_num)
     def Init_task_env(self,seed,id):
         self.env_state=0 #0:running 1:success 2:fail
         self.step=0
         self.task.setup_demo(now_ep_num=id, seed = seed, is_test = True, ** self.args)
-    def Check_seed(self,test_num):
+        self.eval_video_log = True
+        self.video_size = str(self.args['head_camera_w']) + 'x' + str(self.args['head_camera_h'])
+        self.save_dir = "policy" + str(self.args['task_name']) + '_' + str(self.args['head_camera_type']) + '/' + 'seed' + str(seed)
+        if self.eval_video_log:
+            time_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.save_dir = Path('eval_video') / self.save_dir
+            self.save_dir.mkdir(parents=True, exist_ok=True)
+            log_file = open(f'{self.save_dir}/{time_str}_ffmpeg_log.txt', 'w')
+            
+            self.ffmpeg = subprocess.Popen([
+            'ffmpeg', '-y',
+            '-f', 'rawvideo',
+            '-pixel_format', 'rgb24',
+            '-video_size', self.video_size,
+            '-framerate', '10',
+            '-i', '-',
+            '-pix_fmt', 'yuv420p',
+            '-vcodec', 'libx264',
+            '-preset', 'veryfast',
+            '-tune', 'zerolatency',
+            '-g', '15',
+            '-threads', '0',
+            f'{self.save_dir}/{time_str}.mp4'
+        ], stdin=subprocess.PIPE, stdout=log_file, stderr=log_file)
+    def save_seed(self, seedlist, st_seed=None):
+        if st_seed is None:
+            st_seed = self.st_seed
+        st_seed_key = str(st_seed)
+        
+        save_path = f'./seeds_list'
+        file_path = os.path.join(save_path, f'{self.args["task_name"]}.json')
+        
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        
+        new_seeds = set(seedlist)
+        
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                
+                if st_seed_key in data:
+                    existing_seeds = set(data[st_seed_key])
+                    all_seeds = sorted(list(existing_seeds.union(new_seeds)))
+                    data[st_seed_key] = all_seeds
+                else:
+                    data[st_seed_key] = sorted(list(new_seeds))
+            except (json.JSONDecodeError, FileNotFoundError):
+                data = {st_seed_key: sorted(list(new_seeds))}
+        else:
+            data = {st_seed_key: sorted(list(new_seeds))}
+        
+        with open(file_path, 'w') as f:
+            json.dump(data, f, indent=2)
+    def find_seed(self, task_num):
+        save_path = f'./seeds_list'
+        file_path = os.path.join(save_path, f'{self.args["task_name"]}.json')
+        st_seed_key = str(self.st_seed)
+        
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        
+        existing_seeds = []
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                existing_seeds = data.get(st_seed_key, [])
+            except (json.JSONDecodeError, FileNotFoundError):
+                existing_seeds = []
+        
+        valid_seeds = existing_seeds
+        
+        if len(valid_seeds) >= task_num:
+            selected_seeds = valid_seeds[:task_num]
+            id_list = list(range(task_num))
+            print(f"Found {len(selected_seeds)} valid seeds in group {st_seed_key}")
+            return selected_seeds, id_list
+        
+        print(f"Insufficient seeds in group {st_seed_key} ({len(valid_seeds)}/{task_num}), starting to find new seeds...")
+        
+        needed_seeds = task_num - len(valid_seeds)
+        start_seed = self.st_seed
+        if valid_seeds:
+            start_seed = max(valid_seeds) + 1
+        
+        new_seeds, new_ids = self.Check_seed(needed_seeds, start_seed)
+        
+        final_seeds = valid_seeds + new_seeds
+        final_seeds = final_seeds[:task_num]
+        final_ids = list(range(len(final_seeds)))
+        
+        self.save_seed(new_seeds)
+        
+        print(f"Total found {len(final_seeds)} valid seeds in group {st_seed_key}")
+        return final_seeds, final_ids
+    def Check_seed(self,test_num,start_seed):
         expert_check=True
         print("Task name: ", self.args["task_name"])
         suc_seed_list=[]
         now_id_list = []
         succ_tnt=0
-        now_seed=self.st_seed
+        now_seed=start_seed
         now_id = 0
         self.task.cus=0
         self.task.test_num = 0
@@ -108,7 +207,7 @@ class Env:
                     self.task.close()
                     now_seed += 1
                     self.args['render_freq'] = render_freq
-                    print('error occurs !')
+                    print('Error occurred!')
                     continue
             self.args['render_freq'] = render_freq
         return suc_seed_list, now_id_list
@@ -119,13 +218,15 @@ class Env:
             self.env_state=1
         if self.task.get_actor_pose()==False:
             self.env_state=2
-    def Take_action(self,action):
+    def Take_action(self,action,model):
         # actions=[]
         # actions.append(action)
         # actions=np.array(actions)
         # self.task.apply_action(actions)
+        observation = self.get_observation()
+        self.ffmpeg.stdin.write(observation['observation']['head_camera']['rgb'].tobytes())
         actions=action
-        self.task.apply_action(actions)
+        self.task.apply_action(actions,model)
         self.step+=actions.shape[0]
         self.Detect_env_state()
         if self.env_state==1:
@@ -140,9 +241,13 @@ class Env:
             return "run"
     def Close_env(self):
         self.task.close()
+        if self.eval_video_log:
+            self.ffmpeg.stdin.close()
+            self.ffmpeg.wait()
+            del self.ffmpeg
         if self.task.render_freq:
             self.task.viewer.close()
-        print ('Env Closed!')
+        print ('Environment Closed!')
         self.task._take_picture()
     def get_observation(self):
         return self.task.Get_observation()
