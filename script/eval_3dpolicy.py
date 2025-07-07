@@ -194,11 +194,6 @@ class Env:
                     self.task.setup_demo(now_ep_num=now_id, seed = now_seed, is_test = True, ** self.args)
                     self.task.play_once()
                     self.task.close()
-                    suc_seed_list.append(now_seed)
-                    now_id_list.append(now_id)
-                    now_id += 1
-                    succ_tnt += 1
-                    now_seed += 1
                 except Exception as e:
                     stack_trace = traceback.format_exc()
                     print(' -------------')
@@ -209,7 +204,17 @@ class Env:
                     self.args['render_freq'] = render_freq
                     print('Error occurred!')
                     continue
-            self.args['render_freq'] = render_freq
+            if (not expert_check) or ( self.task.plan_success and self.task.check_success() ):
+                now_id_list.append(now_id)
+                suc_seed_list.append(now_seed)
+                succ_tnt +=1
+                now_seed += 1
+                now_id += 1
+                
+            else:
+                now_seed += 1
+                self.args['render_freq'] = render_freq
+                continue
         return suc_seed_list, now_id_list
     def Detect_env_state(self):
         if self.step>self.task.get_step_lim():
@@ -218,7 +223,7 @@ class Env:
             self.env_state=1
         if self.task.get_actor_pose()==False:
             self.env_state=2
-    def Take_action(self,action,model):
+    def Take_action(self,action,model=None):
         # actions=[]
         # actions.append(action)
         # actions=np.array(actions)
@@ -226,7 +231,7 @@ class Env:
         observation = self.get_observation()
         self.ffmpeg.stdin.write(observation['observation']['head_camera']['rgb'].tobytes())
         actions=action
-        self.task.apply_action(actions,model)
+        self.task.apply_action(actions)
         self.step+=actions.shape[0]
         self.Detect_env_state()
         if self.env_state==1:
