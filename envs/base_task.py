@@ -2179,7 +2179,9 @@ class Base_task(gym.Env):
         except:
                 topp_left_flag = False
                 left_n_step = 1
-
+        if left_n_step == 0:
+            topp_left_flag = False
+            left_n_step = 1
         try:
             times, right_pos, right_vel, acc, duration = self.right_planner.TOPP(right_path, 1/250, verbose=True)            
             right_result = dict()
