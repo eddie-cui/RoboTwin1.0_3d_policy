@@ -2150,6 +2150,10 @@ class Base_task(gym.Env):
     def get_actor_pose(self):
         return self.actor_pose
     def apply_action(self,actions):
+        self._update_render()
+        if self.render_freq:
+            self.viewer.render()
+        self.actor_pose = True
         success_flag = False
         obs= self.get_obs() # get observation
         left_arm_actions , left_gripper , left_current_qpos, left_path = [], [], [], []
@@ -2263,6 +2267,7 @@ class Base_task(gym.Env):
             return success_flag
         
         if self.actor_pose == False:
+            success_flag = False
             return success_flag
         return success_flag       
     def Get_observation(self):

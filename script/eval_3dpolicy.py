@@ -245,6 +245,8 @@ class Env:
         else:
             return "run"
     def Close_env(self):
+        observation = self.get_observation()
+        self.ffmpeg.stdin.write(observation['observation']['head_camera']['rgb'].tobytes())
         self.task.close()
         if self.eval_video_log:
             self.ffmpeg.stdin.close()
