@@ -74,20 +74,28 @@ class Env:
         self.task= Env.class_decorator(task_name)
         self.st_seed = (seed+1)*(10000)
         self.task.set_actor_pose(True)
+        self.time_str= datetime.astimezone(datetime.now()).strftime("%Y%m%d_%H%M%S")
+        self.save_dir = "policy" + str(self.args['task_name']) + '_' + str(self.args['head_camera_type']) +  '/' + self.time_str
+        self.save_dir = Path('eval_video') / self.save_dir
+        self.save_dir.mkdir(parents=True, exist_ok=True)
+        self.success_dir= self.save_dir / 'success'
+        self.success_dir.mkdir(parents=True, exist_ok=True)
+        self.fail_dir= self.save_dir / 'fail'
+        self.fail_dir.mkdir(parents=True, exist_ok=True)
         return self.find_seed(task_num)
     def Init_task_env(self,seed,id):
         self.env_state=0 #0:running 1:success 2:fail
         self.step=0
+        self.seed= seed
         self.task.setup_demo(now_ep_num=id, seed = seed, is_test = True, ** self.args)
         self.eval_video_log = True
         self.video_size = str(self.args['head_camera_w']) + 'x' + str(self.args['head_camera_h'])
-        self.save_dir = "policy" + str(self.args['task_name']) + '_' + str(self.args['head_camera_type']) + '/' + 'seed' + str(seed)
+        # self.save_dir = "policy" + str(self.args['task_name']) + '_' + str(self.args['head_camera_type']) + '/' + 'seed' + str(seed)
         if self.eval_video_log:
-            time_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.save_dir = Path('eval_video') / self.save_dir
-            self.save_dir.mkdir(parents=True, exist_ok=True)
-            log_file = open(f'{self.save_dir}/{time_str}_ffmpeg_log.txt', 'w')
-            
+            # time_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # self.save_dir = Path('eval_video') / self.save_dir
+            # self.save_dir.mkdir(parents=True, exist_ok=True)
+            log_file = open(f'{self.save_dir}/{seed}_ffmpeg_log.txt', 'w')
             self.ffmpeg = subprocess.Popen([
             'ffmpeg', '-y',
             '-f', 'rawvideo',
@@ -101,7 +109,7 @@ class Env:
             '-tune', 'zerolatency',
             '-g', '15',
             '-threads', '0',
-            f'{self.save_dir}/{time_str}.mp4'
+            f'{self.save_dir}/{seed}.mp4'
         ], stdin=subprocess.PIPE, stdout=log_file, stderr=log_file)
     def save_seed(self, seedlist, st_seed=None):
         if st_seed is None:
@@ -236,15 +244,15 @@ class Env:
         self.Detect_env_state()
         if self.env_state==1:
             print('Task Success!')
-            self.Close_env()
+            self.Close_env(success=True)
             return "success"
         elif self.env_state==2:
             print('Task Failed!')
-            self.Close_env()
+            self.Close_env(success=False)
             return "fail"
         else:
             return "run"
-    def Close_env(self):
+    def Close_env(self,success=False):
         observation = self.get_observation()
         self.ffmpeg.stdin.write(observation['observation']['head_camera']['rgb'].tobytes())
         self.task.close()
@@ -252,6 +260,12 @@ class Env:
             self.ffmpeg.stdin.close()
             self.ffmpeg.wait()
             del self.ffmpeg
+        if success:
+            import shutil
+            shutil.copy(f'{self.save_dir}/{self.seed}.mp4', self.success_dir / f'{self.seed}.mp4')
+        else:
+            import shutil
+            shutil.copy(f'{self.save_dir}/{self.seed}.mp4', self.fail_dir / f'{self.seed}.mp4')
         if self.task.render_freq:
             self.task.viewer.close()
         print ('Environment Closed!')
