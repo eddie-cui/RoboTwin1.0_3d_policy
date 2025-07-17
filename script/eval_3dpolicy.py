@@ -84,6 +84,7 @@ class Env:
         self.fail_dir.mkdir(parents=True, exist_ok=True)
         return self.find_seed(task_num)
     def Init_task_env(self,seed,id):
+        self.task.set_actor_pose(True)
         self.env_state=0 #0:running 1:success 2:fail
         self.step=0
         self.seed= seed
